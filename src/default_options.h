@@ -163,6 +163,12 @@ IMPORTANT: Some options will require "make clean" after changes */
  * This is currently server-only. */
 #define DROPBEAR_SK_KEYS 1
 
+/* Allow OpenSSH certificate-based public key auth.
+ * The corresponding base key algorithms (DROPBEAR_RSA, DROPBEAR_ECDSA,
+ * DROPBEAR_ED25519, DROPBEAR_DSS) must also be enabled for their
+ * respective certificate types. Server-side verification only. */
+#define DROPBEAR_CERT_KEYS 1
+
 /* RSA must be >=1024 */
 #define DROPBEAR_DEFAULT_RSA_SIZE 2048
 /* DSS is always 1024 */

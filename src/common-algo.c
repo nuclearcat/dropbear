@@ -210,6 +210,9 @@ algo_type ssh_nocompress[] = {
 algo_type sigalgs[] = {
 #if DROPBEAR_ED25519
 	{"ssh-ed25519", DROPBEAR_SIGNATURE_ED25519, NULL, 1, NULL},
+#if DROPBEAR_CERT_KEYS
+	{"ssh-ed25519-cert-v01@openssh.com", DROPBEAR_SIGNATURE_ED25519_CERT, NULL, 0, NULL},
+#endif
 #if DROPBEAR_SK_ED25519
 	{"sk-ssh-ed25519@openssh.com", DROPBEAR_SIGNATURE_SK_ED25519, NULL, 1, NULL},
 #endif
@@ -217,12 +220,21 @@ algo_type sigalgs[] = {
 #if DROPBEAR_ECDSA
 #if DROPBEAR_ECC_256
 	{"ecdsa-sha2-nistp256", DROPBEAR_SIGNATURE_ECDSA_NISTP256, NULL, 1, NULL},
+#if DROPBEAR_CERT_KEYS
+	{"ecdsa-sha2-nistp256-cert-v01@openssh.com", DROPBEAR_SIGNATURE_ECDSA_NISTP256_CERT, NULL, 0, NULL},
+#endif
 #endif
 #if DROPBEAR_ECC_384
 	{"ecdsa-sha2-nistp384", DROPBEAR_SIGNATURE_ECDSA_NISTP384, NULL, 1, NULL},
+#if DROPBEAR_CERT_KEYS
+	{"ecdsa-sha2-nistp384-cert-v01@openssh.com", DROPBEAR_SIGNATURE_ECDSA_NISTP384_CERT, NULL, 0, NULL},
+#endif
 #endif
 #if DROPBEAR_ECC_521
 	{"ecdsa-sha2-nistp521", DROPBEAR_SIGNATURE_ECDSA_NISTP521, NULL, 1, NULL},
+#if DROPBEAR_CERT_KEYS
+	{"ecdsa-sha2-nistp521-cert-v01@openssh.com", DROPBEAR_SIGNATURE_ECDSA_NISTP521_CERT, NULL, 0, NULL},
+#endif
 #endif
 #if DROPBEAR_SK_ECDSA
 	{"sk-ecdsa-sha2-nistp256@openssh.com", DROPBEAR_SIGNATURE_SK_ECDSA_NISTP256, NULL, 1, NULL},
@@ -231,13 +243,22 @@ algo_type sigalgs[] = {
 #if DROPBEAR_RSA
 #if DROPBEAR_RSA_SHA256
 	{"rsa-sha2-256", DROPBEAR_SIGNATURE_RSA_SHA256, NULL, 1, NULL},
+#if DROPBEAR_CERT_KEYS
+	{"rsa-sha2-256-cert-v01@openssh.com", DROPBEAR_SIGNATURE_RSA_SHA256_CERT, NULL, 0, NULL},
+#endif
 #endif
 #if DROPBEAR_RSA_SHA1
 	{"ssh-rsa", DROPBEAR_SIGNATURE_RSA_SHA1, NULL, 1, NULL},
+#if DROPBEAR_CERT_KEYS
+	{"ssh-rsa-cert-v01@openssh.com", DROPBEAR_SIGNATURE_RSA_SHA1_CERT, NULL, 0, NULL},
+#endif
 #endif
 #endif
 #if DROPBEAR_DSS
 	{"ssh-dss", DROPBEAR_SIGNATURE_DSS, NULL, 1, NULL},
+#if DROPBEAR_CERT_KEYS
+	{"ssh-dss-cert-v01@openssh.com", DROPBEAR_SIGNATURE_DSS_CERT, NULL, 0, NULL},
+#endif
 #endif
 	{NULL, 0, NULL, 0, NULL}
 };

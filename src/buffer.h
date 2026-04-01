@@ -69,5 +69,6 @@ void buf_putbytes(buffer *buf, const unsigned char *bytes, unsigned int len);
 void buf_putmpint(buffer* buf, const mp_int * mp);
 int buf_getmpint(buffer* buf, mp_int* mp);
 unsigned int buf_getint(buffer* buf);
+uint64_t buf_getint64(buffer* buf);
 
 #endif /* DROPBEAR_BUFFER_H_ */

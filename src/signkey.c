@@ -30,6 +30,7 @@
 #include "ecdsa.h"
 #include "sk-ecdsa.h"
 #include "sk-ed25519.h"
+#include "cert.h"
 #include "rsa.h"
 #include "dss.h"
 #include "ed25519.h"
@@ -37,25 +38,40 @@
 static const char * const signkey_names[DROPBEAR_SIGNKEY_NUM_NAMED] = {
 #if DROPBEAR_RSA
 	"ssh-rsa",
+#if DROPBEAR_CERT_KEYS
+	"ssh-rsa-cert-v01@openssh.com",
+#endif
 #endif
 #if DROPBEAR_DSS
 	"ssh-dss",
+#if DROPBEAR_CERT_KEYS
+	"ssh-dss-cert-v01@openssh.com",
+#endif
 #endif
 #if DROPBEAR_ECDSA
 	"ecdsa-sha2-nistp256",
 	"ecdsa-sha2-nistp384",
 	"ecdsa-sha2-nistp521",
+#if DROPBEAR_CERT_KEYS
+	"ecdsa-sha2-nistp256-cert-v01@openssh.com",
+	"ecdsa-sha2-nistp384-cert-v01@openssh.com",
+	"ecdsa-sha2-nistp521-cert-v01@openssh.com",
+#endif
 #if DROPBEAR_SK_ECDSA
 	"sk-ecdsa-sha2-nistp256@openssh.com",
 #endif /* DROPBEAR_SK_ECDSA */
 #endif /* DROPBEAR_ECDSA */
 #if DROPBEAR_ED25519
 	"ssh-ed25519",
+#if DROPBEAR_CERT_KEYS
+	"ssh-ed25519-cert-v01@openssh.com",
+#endif
 #if DROPBEAR_SK_ED25519
 	"sk-ssh-ed25519@openssh.com",
 #endif /* DROPBEAR_SK_ED25519 */
 #endif /* DROPBEAR_ED25519 */
-	/* "rsa-sha2-256" is special-cased below since it is only a signature name, not key type */
+	/* "rsa-sha2-256" is special-cased below since it is only a signature name, not key type.
+	 * "rsa-sha2-256-cert-v01@openssh.com" is also special-cased. */
 };
 
 /* malloc a new sign_key and set the dss and rsa keys to NULL */
@@ -117,8 +133,8 @@ enum signkey_type signkey_type_from_name(const char* name, unsigned int namelen)
 	return DROPBEAR_SIGNKEY_NONE;
 }
 
-/* Special case for rsa-sha2-256. This could be generalised if more 
-   signature names are added that aren't 1-1 with public key names */
+/* Special case for rsa-sha2-256 and cert variants. These are signature
+   names that aren't 1-1 with the signkey_names[] array entries */
 const char* signature_name_from_type(enum signature_type type, unsigned int *namelen) {
 #if DROPBEAR_RSA
 #if DROPBEAR_RSA_SHA256
@@ -137,6 +153,24 @@ const char* signature_name_from_type(enum signature_type type, unsigned int *nam
 		return SSH_SIGNKEY_RSA;
 	}
 #endif
+#if DROPBEAR_CERT_KEYS
+	if (type == DROPBEAR_SIGNATURE_RSA_SHA256_CERT) {
+		static const char *name = "rsa-sha2-256-cert-v01@openssh.com";
+		if (namelen) {
+			*namelen = strlen(name);
+		}
+		return name;
+	}
+#if DROPBEAR_RSA_SHA1
+	if (type == DROPBEAR_SIGNATURE_RSA_SHA1_CERT) {
+		static const char *name = "ssh-rsa-cert-v01@openssh.com";
+		if (namelen) {
+			*namelen = strlen(name);
+		}
+		return name;
+	}
+#endif
+#endif
 #endif /* DROPBEAR_RSA */
 	return signkey_name_from_type((enum signkey_type)type, namelen);
 }
@@ -145,26 +179,47 @@ const char* signature_name_from_type(enum signature_type type, unsigned int *nam
 enum signature_type signature_type_from_name(const char* name, unsigned int namelen) {
 #if DROPBEAR_RSA
 #if DROPBEAR_RSA_SHA256
-	if (namelen == strlen(SSH_SIGNATURE_RSA_SHA256) 
+	if (namelen == strlen(SSH_SIGNATURE_RSA_SHA256)
 		&& memcmp(name, SSH_SIGNATURE_RSA_SHA256, namelen) == 0) {
 		return DROPBEAR_SIGNATURE_RSA_SHA256;
 	}
 #endif
 #if DROPBEAR_RSA_SHA1
-	if (namelen == strlen(SSH_SIGNKEY_RSA) 
+	if (namelen == strlen(SSH_SIGNKEY_RSA)
 		&& memcmp(name, SSH_SIGNKEY_RSA, namelen) == 0) {
 		return DROPBEAR_SIGNATURE_RSA_SHA1;
 	}
+#endif
+#if DROPBEAR_CERT_KEYS
+	{
+		static const char *rsa_cert_name = "rsa-sha2-256-cert-v01@openssh.com";
+		if (namelen == strlen(rsa_cert_name)
+			&& memcmp(name, rsa_cert_name, namelen) == 0) {
+			return DROPBEAR_SIGNATURE_RSA_SHA256_CERT;
+		}
+	}
+#if DROPBEAR_RSA_SHA1
+	{
+		static const char *rsa_sha1_cert_name = "ssh-rsa-cert-v01@openssh.com";
+		if (namelen == strlen(rsa_sha1_cert_name)
+			&& memcmp(name, rsa_sha1_cert_name, namelen) == 0) {
+			return DROPBEAR_SIGNATURE_RSA_SHA1_CERT;
+		}
+	}
+#endif
 #endif
 #endif /* DROPBEAR_RSA */
 	return (enum signature_type)signkey_type_from_name(name, namelen);
 }
 
 /* Returns the signature type from a key type. Must not be called
-   with RSA keytype */
+   with RSA or RSA_CERT keytype (they have multiple signature variants) */
 enum signature_type signature_type_from_signkey(enum signkey_type keytype) {
 #if DROPBEAR_RSA
 	assert(keytype != DROPBEAR_SIGNKEY_RSA);
+#if DROPBEAR_CERT_KEYS
+	assert(keytype != DROPBEAR_SIGNKEY_RSA_CERT);
+#endif
 #endif
 	assert(keytype < DROPBEAR_SIGNKEY_NUM_NAMED);
 	return (enum signature_type)keytype;
@@ -182,6 +237,16 @@ enum signkey_type signkey_type_from_signature(enum signature_type sigtype) {
 		return DROPBEAR_SIGNKEY_RSA;
 	}
 #endif
+#if DROPBEAR_CERT_KEYS
+	if (sigtype == DROPBEAR_SIGNATURE_RSA_SHA256_CERT) {
+		return DROPBEAR_SIGNKEY_RSA_CERT;
+	}
+#if DROPBEAR_RSA_SHA1
+	if (sigtype == DROPBEAR_SIGNATURE_RSA_SHA1_CERT) {
+		return DROPBEAR_SIGNKEY_RSA_CERT;
+	}
+#endif
+#endif
 #endif /* DROPBEAR_RSA */
 	assert((int)sigtype < (int)DROPBEAR_SIGNKEY_NUM_NAMED);
 	return (enum signkey_type)sigtype;
@@ -194,6 +259,9 @@ signkey_key_ptr(sign_key *key, enum signkey_type type) {
 	switch (type) {
 #if DROPBEAR_ED25519
 		case DROPBEAR_SIGNKEY_ED25519:
+#if DROPBEAR_CERT_KEYS
+		case DROPBEAR_SIGNKEY_ED25519_CERT:
+#endif
 #if DROPBEAR_SK_ED25519
 		case DROPBEAR_SIGNKEY_SK_ED25519:
 #endif
@@ -202,6 +270,9 @@ signkey_key_ptr(sign_key *key, enum signkey_type type) {
 #if DROPBEAR_ECDSA
 #if DROPBEAR_ECC_256
 		case DROPBEAR_SIGNKEY_ECDSA_NISTP256:
+#if DROPBEAR_CERT_KEYS
+		case DROPBEAR_SIGNKEY_ECDSA_NISTP256_CERT:
+#endif
 #if DROPBEAR_SK_ECDSA
 		case DROPBEAR_SIGNKEY_SK_ECDSA_NISTP256:
 #endif
@@ -209,19 +280,31 @@ signkey_key_ptr(sign_key *key, enum signkey_type type) {
 #endif
 #if DROPBEAR_ECC_384
 		case DROPBEAR_SIGNKEY_ECDSA_NISTP384:
+#if DROPBEAR_CERT_KEYS
+		case DROPBEAR_SIGNKEY_ECDSA_NISTP384_CERT:
+#endif
 			return (void**)&key->ecckey384;
 #endif
 #if DROPBEAR_ECC_521
 		case DROPBEAR_SIGNKEY_ECDSA_NISTP521:
+#if DROPBEAR_CERT_KEYS
+		case DROPBEAR_SIGNKEY_ECDSA_NISTP521_CERT:
+#endif
 			return (void**)&key->ecckey521;
 #endif
 #endif /* DROPBEAR_ECDSA */
 #if DROPBEAR_RSA
 		case DROPBEAR_SIGNKEY_RSA:
+#if DROPBEAR_CERT_KEYS
+		case DROPBEAR_SIGNKEY_RSA_CERT:
+#endif
 			return (void**)&key->rsakey;
 #endif
 #if DROPBEAR_DSS
 		case DROPBEAR_SIGNKEY_DSS:
+#if DROPBEAR_CERT_KEYS
+		case DROPBEAR_SIGNKEY_DSS_CERT:
+#endif
 			return (void**)&key->dsskey;
 #endif
 		default:
@@ -256,6 +339,18 @@ int buf_get_pub_key(buffer *buf, sign_key *key, enum signkey_type *type) {
 
 	/* Rewind the buffer back before "ssh-rsa" etc */
 	buf_decrpos(buf, len + 4);
+
+#if DROPBEAR_CERT_KEYS
+	if (signkey_is_cert_type(keytype)) {
+		ret = cert_parse(buf, key, keytype);
+		if (ret == DROPBEAR_FAILURE && key->cert_info) {
+			cert_info_free(key->cert_info);
+			key->cert_info = NULL;
+		}
+		TRACE2(("leave buf_get_pub_key (cert)"))
+		return ret;
+	}
+#endif
 
 #if DROPBEAR_DSS
 	if (keytype == DROPBEAR_SIGNKEY_DSS) {
@@ -549,6 +644,12 @@ void sign_key_free(sign_key *key) {
 		m_free(key->sk_app);
 	}
 #endif
+#if DROPBEAR_CERT_KEYS
+	if (key->cert_info) {
+		cert_info_free(key->cert_info);
+		key->cert_info = NULL;
+	}
+#endif
 
 	m_free(key);
 	TRACE2(("leave sign_key_free"))
@@ -656,11 +757,42 @@ int buf_verify(buffer * buf, sign_key *key, enum signature_type expect_sigtype, 
 	sigtype = signature_type_from_name(type_name, type_name_len);
 	m_free(type_name);
 
+#if DROPBEAR_CERT_KEYS
+	/* For certificate key types, the user's auth signature uses the
+	 * base algorithm name in the signature blob (e.g. "ssh-ed25519")
+	 * while expect_sigtype is the cert variant (e.g. ED25519_CERT).
+	 * Normalize expect_sigtype to the base type for comparison. */
+	{
+		enum signature_type effective_expect = expect_sigtype;
+
+#if DROPBEAR_RSA_SHA256
+		if (expect_sigtype == DROPBEAR_SIGNATURE_RSA_SHA256_CERT) {
+			effective_expect = DROPBEAR_SIGNATURE_RSA_SHA256;
+		} else
+#endif
+#if DROPBEAR_RSA_SHA1
+		if (expect_sigtype == DROPBEAR_SIGNATURE_RSA_SHA1_CERT) {
+			effective_expect = DROPBEAR_SIGNATURE_RSA_SHA1;
+		} else
+#endif
+		{
+			enum signkey_type expect_keytype = signkey_type_from_signature(expect_sigtype);
+			if (signkey_is_cert_type(expect_keytype)) {
+				effective_expect = (enum signature_type)cert_base_keytype(expect_keytype);
+			}
+		}
+		if (effective_expect != sigtype) {
+			dropbear_exit("Non-matching signing type");
+		}
+	}
+#else
 	if (expect_sigtype != sigtype) {
 			dropbear_exit("Non-matching signing type");
 	}
+#endif
 
 	keytype = signkey_type_from_signature(sigtype);
+
 #if DROPBEAR_DSS
 	if (keytype == DROPBEAR_SIGNKEY_DSS) {
 		if (key->dsskey == NULL) {

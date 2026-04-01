@@ -277,6 +277,22 @@ unsigned int buf_getint(buffer* buf) {
 	return ret;
 }
 
+/* get a 64bit uint from the buffer and increment the pos */
+uint64_t buf_getint64(buffer* buf) {
+	uint64_t ret;
+	const unsigned char *p = buf_getptr(buf, 8);
+	ret = ((uint64_t)p[0] << 56)
+		| ((uint64_t)p[1] << 48)
+		| ((uint64_t)p[2] << 40)
+		| ((uint64_t)p[3] << 32)
+		| ((uint64_t)p[4] << 24)
+		| ((uint64_t)p[5] << 16)
+		| ((uint64_t)p[6] << 8)
+		| (uint64_t)p[7];
+	buf_incrpos(buf, 8);
+	return ret;
+}
+
 /* put a 32bit uint into the buffer, incr bufferlen & pos if required */
 void buf_putint(buffer* buf, int unsigned val) {
 

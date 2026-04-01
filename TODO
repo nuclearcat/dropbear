@@ -1,0 +1,26 @@
+Certificate Authentication (DROPBEAR_CERT_KEYS) - Known Limitations & Future Work
+==================================================================================
+
+1. No Revocation Support
+   There is no implementation for a RevokedKeys list (similar to OpenSSH's KRL).
+   If a CA key is compromised or a certificate needs early revocation, there is
+   no built-in mechanism to block it other than removing the CA from
+   authorized_keys. An initial step could be a simple serial/key-id blacklist
+   file; full KRL binary format support would be a larger effort.
+
+2. Refactoring checkpubkey_cert()
+   The checkpubkey_cert() function in src/svr-authpubkey.c is quite large and
+   performs complex manual parsing of the authorized_keys line (cert-authority
+   detection, quote-aware option tokenization, CA key matching, cert validation).
+   This could be refactored into smaller helper functions for better
+   maintainability.
+
+3. Test Coverage
+   End-to-end tests exist in test_e2e.sh covering the main cert auth paths
+   (ed25519, RSA with sha256/sha512 CA sigs, quoted-comma options, negative
+   cases, dbclient agent interop). Still missing:
+   - Unit tests for cert_parse() with malformed/truncated blobs
+   - Fuzzer harness for certificate blob parsing
+   - Tests for expired/not-yet-valid certificates
+   - Tests for principal mismatch rejection
+   - Tests for critical options handling

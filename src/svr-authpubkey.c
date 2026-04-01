@@ -65,6 +65,7 @@
 #include "packet.h"
 #include "algo.h"
 #include "runopts.h"
+#include "cert.h"
 
 #if DROPBEAR_SVR_PUBKEY_AUTH
 
@@ -78,6 +79,10 @@ static int checkpubkeyperms(void);
 static void send_msg_userauth_pk_ok(const char* sigalgo, unsigned int sigalgolen,
 		const unsigned char* keyblob, unsigned int keybloblen);
 static int checkfileperm(char * filename);
+#if DROPBEAR_CERT_KEYS
+static int checkpubkey_cert(const char* keyalgo, unsigned int keyalgolen,
+		const unsigned char* keyblob, unsigned int keybloblen);
+#endif
 
 /* process a pubkey auth request, sending success or failure message as
  * appropriate */
@@ -478,6 +483,15 @@ static int checkpubkey(const char* keyalgo, unsigned int keyalgolen,
 
 	TRACE(("enter checkpubkey"))
 
+#if DROPBEAR_CERT_KEYS
+	{
+		enum signkey_type keytype = signkey_type_from_name(keyalgo, keyalgolen);
+		if (signkey_is_cert_type(keytype)) {
+			return checkpubkey_cert(keyalgo, keyalgolen, keyblob, keybloblen);
+		}
+	}
+#endif
+
 #if DROPBEAR_SVR_MULTIUSER
 	/* access the file as the authenticating user. */
 	origuid = getuid();
@@ -550,6 +564,363 @@ out:
 	return ret;
 }
 
+#if DROPBEAR_CERT_KEYS
+/* Check a certificate against authorized_keys cert-authority entries.
+ * Parses the cert, finds matching CA key, verifies CA signature,
+ * checks principals, time validity, and processes cert options. */
+static int checkpubkey_cert(const char* keyalgo, unsigned int keyalgolen,
+		const unsigned char* keyblob, unsigned int keybloblen) {
+
+	FILE * authfile = NULL;
+	char * filename = NULL;
+	int ret = DROPBEAR_FAILURE;
+	buffer * line = NULL;
+	buffer * certbuf = NULL;
+	sign_key * cert_key = NULL;
+	int line_num;
+	uid_t origuid;
+	gid_t origgid;
+
+	TRACE(("enter checkpubkey_cert"))
+
+	/* Parse the certificate to extract CA key and metadata */
+	if (keybloblen > MAX_CERT_SIZE) {
+		TRACE(("checkpubkey_cert: cert blob too large %u", keybloblen))
+		goto out;
+	}
+	cert_key = new_sign_key();
+	certbuf = buf_new(keybloblen);
+	buf_putbytes(certbuf, keyblob, keybloblen);
+	buf_setpos(certbuf, 0);
+
+	{
+		enum signkey_type cert_keytype = signkey_type_from_name(keyalgo, keyalgolen);
+		if (buf_get_pub_key(certbuf, cert_key, &cert_keytype) == DROPBEAR_FAILURE) {
+			TRACE(("checkpubkey_cert: failed to parse certificate"))
+			goto out;
+		}
+	}
+
+	if (cert_key->cert_info == NULL) {
+		TRACE(("checkpubkey_cert: no cert_info after parse"))
+		goto out;
+	}
+
+	/* Only user certificates are valid for authentication */
+	if (cert_key->cert_info->cert_type != SSH_CERT_TYPE_USER) {
+		dropbear_log(LOG_WARNING, "Certificate is not a user certificate");
+		goto out;
+	}
+
+#if DROPBEAR_SVR_MULTIUSER
+	origuid = getuid();
+	origgid = getgid();
+	if ((setegid(ses.authstate.pw_gid)) < 0 ||
+		(seteuid(ses.authstate.pw_uid)) < 0) {
+		dropbear_exit("Failed to set euid");
+	}
+#endif
+	if (checkpubkeyperms() == DROPBEAR_FAILURE) {
+		TRACE(("bad authorized_keys permissions, or file doesn't exist"))
+	} else {
+		filename = authorized_keys_filepath();
+		authfile = fopen(filename, "r");
+		if (!authfile) {
+			TRACE(("checkpubkey_cert: failed opening %s: %s", filename, strerror(errno)))
+		}
+	}
+#if DROPBEAR_SVR_MULTIUSER
+	if ((seteuid(origuid)) < 0 ||
+		(setegid(origgid)) < 0) {
+		dropbear_exit("Failed to revert euid");
+	}
+#endif
+
+	if (authfile == NULL) {
+		goto out;
+	}
+
+	line = buf_new(MAX_AUTHKEYS_LINE);
+	line_num = 0;
+
+	/* Iterate through authorized_keys looking for cert-authority lines */
+	do {
+		if (buf_getline(line, authfile) == DROPBEAR_FAILURE) {
+			break;
+		}
+		line_num++;
+
+		/* Parse line looking for cert-authority entries.
+		 * Format: cert-authority[,options] algo base64key [comment]
+		 * or: options,cert-authority[,options] algo base64key [comment] */
+		{
+			buffer *options_buf = NULL;
+			unsigned int pos;
+			unsigned int len;
+			int found_cert_authority = 0;
+			int is_comment = 0;
+			unsigned char *options_start = NULL;
+			int options_len = 0;
+			int escape, quoted;
+			const char *ca_algo;
+			unsigned int ca_algolen;
+
+			if (line->len < MIN_AUTHKEYS_LINE || line->len > MAX_AUTHKEYS_LINE) {
+				continue;
+			}
+			if (memchr(line->data, 0x0, line->len) != NULL) {
+				continue;
+			}
+
+			buf_setpos(line, 0);
+
+			/* Skip leading whitespace and check for comments */
+			while (line->pos < line->len) {
+				const char c = buf_getbyte(line);
+				if (c == ' ' || c == '\t') {
+					continue;
+				} else if (c == '#') {
+					is_comment = 1;
+					break;
+				}
+				buf_decrpos(line, 1);
+				break;
+			}
+			if (is_comment) {
+				continue;
+			}
+
+			/* Remember start of options/cert-authority field */
+			options_start = buf_getptr(line, 1);
+			quoted = 0;
+			escape = 0;
+			options_len = 0;
+
+			/* Read the first field (could be "cert-authority", options, or algo) */
+			while (line->pos < line->len) {
+				const char c = buf_getbyte(line);
+				if (!quoted && (c == ' ' || c == '\t')) {
+					break;
+				}
+				escape = (!escape && c == '\\');
+				if (!escape && c == '"') {
+					quoted = !quoted;
+				}
+				options_len++;
+			}
+
+			/* Check if this field contains "cert-authority" */
+			{
+				const char *field = (const char *)options_start;
+				int flen = options_len;
+				const char *cert_auth_str = "cert-authority";
+				int cert_auth_len = 14;
+
+				/* Check for exact match or comma-delimited match,
+				   using quote-aware tokenization */
+				if (flen >= cert_auth_len) {
+					const char *p = field;
+					const char *end = field + flen;
+					while (p < end) {
+						const char *tok_start = p;
+						int in_q = 0, esc = 0;
+						while (p < end) {
+							char c = *p;
+							if (esc) { esc = 0; }
+							else if (c == '\\') { esc = 1; }
+							else if (c == '"') { in_q = !in_q; }
+							else if (!in_q && c == ',') { break; }
+							p++;
+						}
+						if ((int)(p - tok_start) == cert_auth_len
+								&& memcmp(tok_start, cert_auth_str, cert_auth_len) == 0) {
+							found_cert_authority = 1;
+							break;
+						}
+						if (p < end) p++; /* skip comma */
+					}
+				}
+			}
+
+			if (!found_cert_authority) {
+				continue;
+			}
+
+			/* Build options buffer excluding "cert-authority" keyword */
+			{
+				/* Parse the comma-separated options, removing cert-authority */
+				buffer *full_opts = buf_new(options_len);
+				const char *p = (const char *)options_start;
+				const char *end = p + options_len;
+				const char *cert_auth_str = "cert-authority";
+				int cert_auth_len = 14;
+
+				while (p < end) {
+					/* Find next token using quote-aware scanning */
+					const char *tok_start = p;
+					int in_q = 0, esc = 0;
+					int token_len;
+					while (p < end) {
+						char c = *p;
+						if (esc) { esc = 0; }
+						else if (c == '\\') { esc = 1; }
+						else if (c == '"') { in_q = !in_q; }
+						else if (!in_q && c == ',') { break; }
+						p++;
+					}
+					token_len = (int)(p - tok_start);
+
+					if (token_len == cert_auth_len
+							&& memcmp(tok_start, cert_auth_str, cert_auth_len) == 0) {
+						/* skip cert-authority token */
+					} else if (token_len > 0) {
+						if (full_opts->len > 0) {
+							buf_putbyte(full_opts, ',');
+						}
+						buf_putbytes(full_opts, (const unsigned char *)tok_start, token_len);
+					}
+					if (p < end) {
+						p++; /* skip comma */
+					}
+				}
+				if (full_opts->len > 0) {
+					options_buf = full_opts;
+				} else {
+					buf_free(full_opts);
+				}
+			}
+
+			/* Skip whitespace after options */
+			while (line->pos < line->len) {
+				const char c = buf_getbyte(line);
+				if (c != ' ' && c != '\t') {
+					buf_decrpos(line, 1);
+					break;
+				}
+			}
+
+			/* Read the CA algorithm name */
+			pos = line->pos;
+			for (ca_algolen = 0; line->pos < line->len; ca_algolen++) {
+				if (buf_getbyte(line) == ' ') {
+					break;
+				}
+			}
+			ca_algo = (const char *)&line->data[pos];
+
+			/* Expect space after algo */
+			if (ca_algolen == 0) {
+				if (options_buf) buf_free(options_buf);
+				continue;
+			}
+
+			/* Read base64 CA key data */
+			pos = line->pos;
+			for (len = 0; line->pos < line->len; len++) {
+				if (buf_getbyte(line) == ' ') {
+					break;
+				}
+			}
+
+			/* Truncate line to base64 data for comparison */
+			buf_setpos(line, pos);
+			buf_setlen(line, pos + len);
+
+			/* Compare the CA key in authorized_keys with the cert's CA key */
+			{
+				int match;
+				buf_setpos(cert_key->cert_info->ca_pubkey_blob, 0);
+				match = cmp_base64_key(
+					cert_key->cert_info->ca_pubkey_blob->data,
+					cert_key->cert_info->ca_pubkey_blob->len,
+					(const unsigned char *)ca_algo, ca_algolen,
+					line, NULL);
+
+				if (match != DROPBEAR_SUCCESS) {
+					if (options_buf) buf_free(options_buf);
+					continue;
+				}
+			}
+
+			TRACE(("checkpubkey_cert: found matching CA key on line %d", line_num))
+
+			/* CA key matches. Now verify the certificate. */
+
+			/* 1. Verify CA signature on the certificate */
+			if (cert_verify_ca_signature(cert_key) != DROPBEAR_SUCCESS) {
+				dropbear_log(LOG_WARNING,
+					"Certificate CA signature verification failed");
+				if (options_buf) buf_free(options_buf);
+				goto out;
+			}
+
+			/* 2. Check valid principals */
+			if (cert_check_principal(cert_key->cert_info,
+					ses.authstate.pw_name) != DROPBEAR_SUCCESS) {
+				dropbear_log(LOG_WARNING,
+					"Certificate principal check failed for user '%s'",
+					ses.authstate.pw_name);
+				if (options_buf) buf_free(options_buf);
+				goto out;
+			}
+
+			/* 3. Check time validity */
+			if (cert_check_time(cert_key->cert_info) != DROPBEAR_SUCCESS) {
+				if (options_buf) buf_free(options_buf);
+				goto out;
+			}
+
+			/* 4. Process authorized_keys line options */
+			if (options_buf) {
+				if (svr_add_pubkey_options(options_buf, line_num, filename)
+						!= DROPBEAR_SUCCESS) {
+					buf_free(options_buf);
+					goto out;
+				}
+				buf_free(options_buf);
+				options_buf = NULL;
+			}
+
+			/* 5. Process certificate critical options and extensions */
+			if (cert_check_critical_options(cert_key->cert_info)
+					!= DROPBEAR_SUCCESS) {
+				dropbear_log(LOG_WARNING,
+					"Certificate has unrecognized critical options");
+				goto out;
+			}
+#if DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT
+			if (cert_apply_options(cert_key->cert_info,
+					&ses.authstate.pubkey_options) != DROPBEAR_SUCCESS) {
+				dropbear_log(LOG_WARNING,
+					"Certificate options processing failed");
+				goto out;
+			}
+#endif
+
+			/* All checks passed */
+			ret = DROPBEAR_SUCCESS;
+			break;
+		}
+	} while (1);
+
+out:
+	if (authfile) {
+		fclose(authfile);
+	}
+	if (line) {
+		buf_free(line);
+	}
+	if (certbuf) {
+		buf_free(certbuf);
+	}
+	if (cert_key) {
+		sign_key_free(cert_key);
+	}
+	m_free(filename);
+	TRACE(("leave checkpubkey_cert: ret=%d", ret))
+	return ret;
+}
+#endif /* DROPBEAR_CERT_KEYS */
 
 /* Returns DROPBEAR_SUCCESS if file permissions for pubkeys are ok,
  * DROPBEAR_FAILURE otherwise.

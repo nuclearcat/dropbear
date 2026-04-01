@@ -220,6 +220,19 @@
 #define DROPBEAR_SK_ED25519 ((DROPBEAR_SK_KEYS) && (DROPBEAR_ED25519))
 #endif
 
+#ifndef DROPBEAR_CERT_KEYS
+#define DROPBEAR_CERT_KEYS 0
+#endif
+
+/* Maximum size for a certificate blob (much larger than bare pubkeys
+ * due to CA key + metadata + signatures).
+ * RSA-4096 with RSA-4096 CA is ~1.9 KB; long principal lists or
+ * source-address critical options can add more.
+ * keybloblen is already bounded by RECV_MAX_PAYLOAD_LEN (~35 KB) at
+ * the packet layer, so this is cheap defense-in-depth rather than a
+ * primary guard. */
+#define MAX_CERT_SIZE 10000
+
 #define DROPBEAR_PQHYBRID (DROPBEAR_SNTRUP761 || DROPBEAR_MLKEM768)
 #define DROPBEAR_CURVE25519_DEP (DROPBEAR_CURVE25519 || DROPBEAR_PQHYBRID)
 
