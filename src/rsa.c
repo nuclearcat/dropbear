@@ -39,8 +39,8 @@
 
 #if DROPBEAR_RSA 
 
-#if !(DROPBEAR_RSA_SHA1 || DROPBEAR_RSA_SHA256)
-#error Somehow RSA was enabled with neither DROPBEAR_RSA_SHA1 nor DROPBEAR_RSA_SHA256
+#if !(DROPBEAR_RSA_SHA1 || DROPBEAR_RSA_SHA256 || DROPBEAR_RSA_SHA512)
+#error Somehow RSA was enabled without any of DROPBEAR_RSA_SHA1, DROPBEAR_RSA_SHA256, DROPBEAR_RSA_SHA512
 #endif
 
 static void rsa_pad_em(const dropbear_rsa_key * key,
@@ -371,6 +371,11 @@ static void rsa_pad_em(const dropbear_rsa_key * key,
 		{0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01,
 		 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20};
 #endif
+#if DROPBEAR_RSA_SHA512
+	const unsigned char T_sha512[] =
+		{0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01,
+		 0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40};
+#endif
 
     int Tlen = 0;
     const unsigned char *T = NULL;
@@ -392,6 +397,13 @@ static void rsa_pad_em(const dropbear_rsa_key * key,
 			Tlen = sizeof(T_sha256);
 			T = T_sha256;
 			hash_desc = &sha256_desc;
+			break;
+#endif
+#if DROPBEAR_RSA_SHA512
+		case DROPBEAR_SIGNATURE_RSA_SHA512:
+			Tlen = sizeof(T_sha512);
+			T = T_sha512;
+			hash_desc = &sha512_desc;
 			break;
 #endif
 		default:

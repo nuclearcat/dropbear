@@ -133,7 +133,7 @@ enum signkey_type signkey_type_from_name(const char* name, unsigned int namelen)
 	return DROPBEAR_SIGNKEY_NONE;
 }
 
-/* Special case for rsa-sha2-256 and cert variants. These are signature
+/* Special case for rsa-sha2-256/512 and cert variants. These are signature
    names that aren't 1-1 with the signkey_names[] array entries */
 const char* signature_name_from_type(enum signature_type type, unsigned int *namelen) {
 #if DROPBEAR_RSA
@@ -143,6 +143,14 @@ const char* signature_name_from_type(enum signature_type type, unsigned int *nam
 			*namelen = strlen(SSH_SIGNATURE_RSA_SHA256);
 		}
 		return SSH_SIGNATURE_RSA_SHA256;
+	}
+#endif
+#if DROPBEAR_RSA_SHA512
+	if (type == DROPBEAR_SIGNATURE_RSA_SHA512) {
+		if (namelen) {
+			*namelen = strlen(SSH_SIGNATURE_RSA_SHA512);
+		}
+		return SSH_SIGNATURE_RSA_SHA512;
 	}
 #endif
 #if DROPBEAR_RSA_SHA1
@@ -161,6 +169,15 @@ const char* signature_name_from_type(enum signature_type type, unsigned int *nam
 		}
 		return name;
 	}
+#if DROPBEAR_RSA_SHA512
+	if (type == DROPBEAR_SIGNATURE_RSA_SHA512_CERT) {
+		static const char *name = "rsa-sha2-512-cert-v01@openssh.com";
+		if (namelen) {
+			*namelen = strlen(name);
+		}
+		return name;
+	}
+#endif
 #if DROPBEAR_RSA_SHA1
 	if (type == DROPBEAR_SIGNATURE_RSA_SHA1_CERT) {
 		static const char *name = "ssh-rsa-cert-v01@openssh.com";
@@ -184,6 +201,12 @@ enum signature_type signature_type_from_name(const char* name, unsigned int name
 		return DROPBEAR_SIGNATURE_RSA_SHA256;
 	}
 #endif
+#if DROPBEAR_RSA_SHA512
+	if (namelen == strlen(SSH_SIGNATURE_RSA_SHA512)
+		&& memcmp(name, SSH_SIGNATURE_RSA_SHA512, namelen) == 0) {
+		return DROPBEAR_SIGNATURE_RSA_SHA512;
+	}
+#endif
 #if DROPBEAR_RSA_SHA1
 	if (namelen == strlen(SSH_SIGNKEY_RSA)
 		&& memcmp(name, SSH_SIGNKEY_RSA, namelen) == 0) {
@@ -198,6 +221,15 @@ enum signature_type signature_type_from_name(const char* name, unsigned int name
 			return DROPBEAR_SIGNATURE_RSA_SHA256_CERT;
 		}
 	}
+#if DROPBEAR_RSA_SHA512
+	{
+		static const char *rsa_512_cert_name = "rsa-sha2-512-cert-v01@openssh.com";
+		if (namelen == strlen(rsa_512_cert_name)
+			&& memcmp(name, rsa_512_cert_name, namelen) == 0) {
+			return DROPBEAR_SIGNATURE_RSA_SHA512_CERT;
+		}
+	}
+#endif
 #if DROPBEAR_RSA_SHA1
 	{
 		static const char *rsa_sha1_cert_name = "ssh-rsa-cert-v01@openssh.com";
@@ -232,6 +264,11 @@ enum signkey_type signkey_type_from_signature(enum signature_type sigtype) {
 		return DROPBEAR_SIGNKEY_RSA;
 	}
 #endif
+#if DROPBEAR_RSA_SHA512
+	if (sigtype == DROPBEAR_SIGNATURE_RSA_SHA512) {
+		return DROPBEAR_SIGNKEY_RSA;
+	}
+#endif
 #if DROPBEAR_RSA_SHA1
 	if (sigtype == DROPBEAR_SIGNATURE_RSA_SHA1) {
 		return DROPBEAR_SIGNKEY_RSA;
@@ -241,6 +278,11 @@ enum signkey_type signkey_type_from_signature(enum signature_type sigtype) {
 	if (sigtype == DROPBEAR_SIGNATURE_RSA_SHA256_CERT) {
 		return DROPBEAR_SIGNKEY_RSA_CERT;
 	}
+#if DROPBEAR_RSA_SHA512
+	if (sigtype == DROPBEAR_SIGNATURE_RSA_SHA512_CERT) {
+		return DROPBEAR_SIGNKEY_RSA_CERT;
+	}
+#endif
 #if DROPBEAR_RSA_SHA1
 	if (sigtype == DROPBEAR_SIGNATURE_RSA_SHA1_CERT) {
 		return DROPBEAR_SIGNKEY_RSA_CERT;
@@ -768,6 +810,11 @@ int buf_verify(buffer * buf, sign_key *key, enum signature_type expect_sigtype, 
 #if DROPBEAR_RSA_SHA256
 		if (expect_sigtype == DROPBEAR_SIGNATURE_RSA_SHA256_CERT) {
 			effective_expect = DROPBEAR_SIGNATURE_RSA_SHA256;
+		} else
+#endif
+#if DROPBEAR_RSA_SHA512
+		if (expect_sigtype == DROPBEAR_SIGNATURE_RSA_SHA512_CERT) {
+			effective_expect = DROPBEAR_SIGNATURE_RSA_SHA512;
 		} else
 #endif
 #if DROPBEAR_RSA_SHA1

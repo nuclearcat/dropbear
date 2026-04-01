@@ -31,6 +31,7 @@
 #include "runopts.h"
 #include "auth.h"
 #include "agentfwd.h"
+#include "cert.h"
 
 #if DROPBEAR_CLI_PUBKEY_AUTH
 static void send_msg_userauth_pubkey(sign_key *key, enum signature_type sigtype, int realsign);
@@ -204,11 +205,29 @@ int cli_auth_pubkey() {
 	/* iterate through privkeys to remove ones not allowed in server-sig-algs */
  	while (cli_opts.privkeys->first) {
 		sign_key * key = (sign_key*)cli_opts.privkeys->first->item;
+#if DROPBEAR_CERT_KEYS
+		/* Client doesn't support certificate-based auth, skip cert keys
+		   (e.g. from an agent) to avoid assertion failures */
+		if (signkey_is_cert_type(key->type)) {
+			TRACE(("skipping cert key type %d", key->type))
+			key = list_remove(cli_opts.privkeys->first);
+			sign_key_free(key);
+			continue;
+		}
+#endif
 		if (cli_ses.server_sig_algs) {
 #if DROPBEAR_RSA
 			if (key->type == DROPBEAR_SIGNKEY_RSA) {
+#if DROPBEAR_RSA_SHA512
+				if (buf_has_algo(cli_ses.server_sig_algs, SSH_SIGNATURE_RSA_SHA512)
+						== DROPBEAR_SUCCESS) {
+					sigtype = DROPBEAR_SIGNATURE_RSA_SHA512;
+					TRACE(("server-sig-algs allows rsa sha512"))
+					break;
+				}
+#endif /* DROPBEAR_RSA_SHA512 */
 #if DROPBEAR_RSA_SHA256
-				if (buf_has_algo(cli_ses.server_sig_algs, SSH_SIGNATURE_RSA_SHA256) 
+				if (buf_has_algo(cli_ses.server_sig_algs, SSH_SIGNATURE_RSA_SHA256)
 						== DROPBEAR_SUCCESS) {
 					sigtype = DROPBEAR_SIGNATURE_RSA_SHA256;
 					TRACE(("server-sig-algs allows rsa sha256"))

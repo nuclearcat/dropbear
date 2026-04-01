@@ -247,6 +247,12 @@ algo_type sigalgs[] = {
 	{"rsa-sha2-256-cert-v01@openssh.com", DROPBEAR_SIGNATURE_RSA_SHA256_CERT, NULL, 0, NULL},
 #endif
 #endif
+#if DROPBEAR_RSA_SHA512
+	{"rsa-sha2-512", DROPBEAR_SIGNATURE_RSA_SHA512, NULL, 1, NULL},
+#if DROPBEAR_CERT_KEYS
+	{"rsa-sha2-512-cert-v01@openssh.com", DROPBEAR_SIGNATURE_RSA_SHA512_CERT, NULL, 0, NULL},
+#endif
+#endif
 #if DROPBEAR_RSA_SHA1
 	{"ssh-rsa", DROPBEAR_SIGNATURE_RSA_SHA1, NULL, 1, NULL},
 #if DROPBEAR_CERT_KEYS

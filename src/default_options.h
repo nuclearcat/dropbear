@@ -135,10 +135,13 @@ IMPORTANT: Some options will require "make clean" after changes */
  *
  * See: RSA_PRIV_FILENAME and DSS_PRIV_FILENAME */
 #define DROPBEAR_RSA 1
-/* Newer SSH implementations use SHA256 for RSA signatures. SHA1
- * support is required to communicate with some older implementations.
- * It is disabled by default. */
+/* Newer SSH implementations use SHA256/SHA512 for RSA signatures.
+ * SHA1 support is required to communicate with some older
+ * implementations. It is disabled by default. */
 #define DROPBEAR_RSA_SHA1 0
+/* rsa-sha2-512 is used by OpenSSH as the default for RSA certificate
+ * CA signatures. Enable this to verify such certificates. */
+#define DROPBEAR_RSA_SHA512 1
 
 /* DSS may be necessary to connect to some systems but is not
  * recommended for new keys (1024 bits is small, and it uses SHA1).

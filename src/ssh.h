@@ -119,6 +119,7 @@
 #define SSH_SIGNKEY_ED25519_LEN 11
 /* signature type */
 #define SSH_SIGNATURE_RSA_SHA256 "rsa-sha2-256"
+#define SSH_SIGNATURE_RSA_SHA512 "rsa-sha2-512"
 
 /* Agent commands. These aren't part of the spec, and are defined
  * only on the openssh implementation. */

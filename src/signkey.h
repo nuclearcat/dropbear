@@ -112,10 +112,16 @@ enum signature_type {
 #if DROPBEAR_RSA_SHA256
 	DROPBEAR_SIGNATURE_RSA_SHA256 = 101, /* rsa-sha2-256 signature. has a ssh-rsa key */
 #endif
+#if DROPBEAR_RSA_SHA512
+	DROPBEAR_SIGNATURE_RSA_SHA512 = 104, /* rsa-sha2-512 signature. has a ssh-rsa key */
+#endif
 #if DROPBEAR_CERT_KEYS
 	DROPBEAR_SIGNATURE_RSA_SHA256_CERT = 102, /* rsa-sha2-256-cert-v01@openssh.com */
 #if DROPBEAR_RSA_SHA1
 	DROPBEAR_SIGNATURE_RSA_SHA1_CERT = 103, /* ssh-rsa-cert-v01@openssh.com */
+#endif
+#if DROPBEAR_RSA_SHA512
+	DROPBEAR_SIGNATURE_RSA_SHA512_CERT = 105, /* rsa-sha2-512-cert-v01@openssh.com */
 #endif
 #endif
 #endif /* DROPBEAR_RSA */

@@ -188,6 +188,10 @@
 #define DROPBEAR_RSA_SHA256 DROPBEAR_RSA
 #endif
 
+#ifndef DROPBEAR_RSA_SHA512
+#define DROPBEAR_RSA_SHA512 DROPBEAR_RSA
+#endif
+
 /* Miller-Rabin primality testing is sufficient for RSA but not DSS.
  * It's a compile-time setting for libtommath, we can get a speedup
  * for key generation if DSS is disabled.
@@ -207,7 +211,8 @@
 /* LTC SHA384 depends on SHA512 */
 #define DROPBEAR_SHA512 ((DROPBEAR_SHA2_512_HMAC) || (DROPBEAR_ECC_521) \
 			|| (DROPBEAR_SHA384) || (DROPBEAR_DH_GROUP16) \
-			|| (DROPBEAR_ED25519) || (DROPBEAR_SNTRUP761))
+			|| (DROPBEAR_ED25519) || (DROPBEAR_SNTRUP761) \
+			|| (DROPBEAR_RSA_SHA512))
 
 #define DROPBEAR_DH_GROUP14 ((DROPBEAR_DH_GROUP14_SHA256) || (DROPBEAR_DH_GROUP14_SHA1))
 
