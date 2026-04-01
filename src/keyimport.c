@@ -431,6 +431,10 @@ static struct openssh_key *load_openssh_key(const char *filename)
 		if (0 == strncmp(buffer, "-----END ", 9) &&
 			0 == strcmp(buffer+strlen(buffer)-17, "PRIVATE KEY-----\n"))
 			break;					   /* done */
+		if (buf->len > MAX_PRIVKEY_SIZE * 2) {
+			errmsg = "Key file too large";
+			goto error;
+		}
 		if ((p = strchr(buffer, ':')) != NULL) {
 			if (headers_done) {
 				errmsg = "Header found in body of key data";

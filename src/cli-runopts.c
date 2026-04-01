@@ -30,6 +30,7 @@
 #include "algo.h"
 #include "tcpfwd.h"
 #include "list.h"
+#include "keyimport.h"
 
 cli_runopts cli_opts; /* GLOBAL */
 
@@ -534,26 +535,51 @@ void cli_getopts(int argc, char ** argv) {
 
 #if DROPBEAR_CLI_PUBKEY_AUTH
 void loadidentityfile(const char* filename, int warnfail) {
-	sign_key *key;
+	sign_key *key = NULL;
 	enum signkey_type keytype;
+	int is_openssh = 0;
 
 	char *id_key_path = expand_homedir_path(filename);
 	TRACE(("loadidentityfile %s", id_key_path))
 
-	key = new_sign_key();
-	keytype = DROPBEAR_SIGNKEY_ANY;
-	if ( readhostkey(id_key_path, key, &keytype) != DROPBEAR_SUCCESS ) {
+	/* Peek at the file to detect OpenSSH format before parsing,
+	 * since buf_getstring() fatally exits on the oversized
+	 * "-----BEGIN ..." header instead of returning failure. */
+	{
+		FILE *f = fopen(id_key_path, "r");
+		if (f) {
+			char buf[11];
+			if (fread(buf, 1, sizeof(buf), f) == sizeof(buf)
+					&& memcmp(buf, "-----BEGIN ", 11) == 0) {
+				is_openssh = 1;
+			}
+			fclose(f);
+		}
+	}
+
+	if (is_openssh) {
+		key = import_read(id_key_path, NULL, KEYFILE_OPENSSH);
+	} else {
+		key = new_sign_key();
+		keytype = DROPBEAR_SIGNKEY_ANY;
+		if (readhostkey(id_key_path, key, &keytype) == DROPBEAR_SUCCESS) {
+			key->type = keytype;
+		} else {
+			sign_key_free(key);
+			key = NULL;
+		}
+	}
+
+	if (!key) {
 		if (warnfail) {
 			dropbear_log(LOG_WARNING, "Failed loading keyfile '%s'\n", id_key_path);
 		}
-		sign_key_free(key);
 		m_free(id_key_path);
-	} else {
-		key->type = keytype;
-		key->source = SIGNKEY_SOURCE_RAW_FILE;
-		key->filename = id_key_path;
-		list_append(cli_opts.privkeys, key);
+		return;
 	}
+	key->source = SIGNKEY_SOURCE_RAW_FILE;
+	key->filename = id_key_path;
+	list_append(cli_opts.privkeys, key);
 }
 #endif
 
