@@ -431,7 +431,15 @@ int cert_check_critical_options(const struct dropbear_cert_info *info) {
 			buf_eatstring(copts); /* skip data */
 
 			if (strcmp(opt_name, "force-command") == 0) {
+#if DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT
 				/* recognized */
+#else
+				dropbear_log(LOG_WARNING,
+					"Certificate critical option '%s' is unsupported in this build",
+					opt_name);
+				m_free(opt_name);
+				return DROPBEAR_FAILURE;
+#endif
 			} else if (strcmp(opt_name, "verify-required") == 0) {
 				/* recognized */
 			} else {
@@ -473,9 +481,16 @@ int cert_apply_options(const struct dropbear_cert_info *info,
 		char *cmd = cert_option_get_str(info->critical_options, "force-command");
 		if (cmd) {
 			if (opts->forced_command) {
-				m_free(opts->forced_command);
+				if (strcmp(opts->forced_command, cmd) != 0) {
+					dropbear_log(LOG_WARNING,
+						"Certificate force-command conflicts with authorized_keys command");
+					m_free(cmd);
+					return DROPBEAR_FAILURE;
+				}
+				m_free(cmd);
+			} else {
+				opts->forced_command = cmd;
 			}
-			opts->forced_command = cmd;
 		}
 	}
 
