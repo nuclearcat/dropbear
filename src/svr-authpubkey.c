@@ -583,6 +583,14 @@ static int checkpubkey_cert(const char* keyalgo, unsigned int keyalgolen,
 
 	TRACE(("enter checkpubkey_cert"))
 
+#if !DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT
+	/* Both certificate permissions and CA-line restrictions require options
+	 * support. Do not authenticate a certificate we cannot restrict. */
+	dropbear_log(LOG_WARNING,
+		"Certificate authentication requires public key options support");
+	goto out;
+#endif
+
 	/* Parse the certificate to extract CA key and metadata */
 	if (keybloblen > MAX_CERT_SIZE) {
 		TRACE(("checkpubkey_cert: cert blob too large %u", keybloblen))

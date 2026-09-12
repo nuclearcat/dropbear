@@ -39,7 +39,9 @@ int cert_parse(buffer *buf, sign_key *key, enum signkey_type cert_keytype);
 
 /* Verify the CA's signature on the certificate.
  * Must be called after cert_parse(). */
+#if DROPBEAR_SIGNKEY_VERIFY
 int cert_verify_ca_signature(const sign_key *key);
+#endif
 
 /* Check that username matches one of the certificate's valid principals.
  * Empty principals list allows any principal. */

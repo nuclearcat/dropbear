@@ -277,6 +277,11 @@ void agent_buf_sign(buffer *sigblob, sign_key *key,
 		flags |= SSH_AGENT_RSA_SHA2_256;
 	}
 #endif
+#if DROPBEAR_RSA_SHA512
+	if (sigtype == DROPBEAR_SIGNATURE_RSA_SHA512) {
+		flags |= SSH_AGENT_RSA_SHA2_512;
+	}
+#endif
 	buf_putint(request_data, flags);
 	
 	response = agent_request(SSH2_AGENTC_SIGN_REQUEST, request_data);

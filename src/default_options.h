@@ -169,7 +169,8 @@ IMPORTANT: Some options will require "make clean" after changes */
 /* Allow OpenSSH certificate-based public key auth.
  * The corresponding base key algorithms (DROPBEAR_RSA, DROPBEAR_ECDSA,
  * DROPBEAR_ED25519, DROPBEAR_DSS) must also be enabled for their
- * respective certificate types. Server-side verification only. */
+ * respective certificate types. Server-side authentication also requires
+ * DROPBEAR_SVR_PUBKEY_OPTIONS to enforce certificate and CA restrictions. */
 #define DROPBEAR_CERT_KEYS 1
 
 /* RSA must be >=1024 */

@@ -34,6 +34,7 @@
 
 /* From OpenSSH authfd.h */
 #define SSH_AGENT_RSA_SHA2_256          0x02
+#define SSH_AGENT_RSA_SHA2_512          0x04
 
 /* An agent reply can be reasonably large, as it can
  * contain a list of all public keys held by the agent.

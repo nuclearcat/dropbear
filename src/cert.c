@@ -110,7 +110,6 @@ int cert_parse(buffer *buf, sign_key *key, enum signkey_type cert_keytype) {
 	unsigned int base_keynamelen;
 	buffer *synthetic_buf = NULL;
 	unsigned int cert_start;
-	unsigned int key_fields_start;
 	unsigned int key_fields_consumed;
 	unsigned int signed_data_end;
 	int ret = DROPBEAR_FAILURE;
@@ -137,8 +136,6 @@ int cert_parse(buffer *buf, sign_key *key, enum signkey_type cert_keytype) {
 	/* Now at the key fields. We need to extract them and parse as
 	 * a regular public key. Build a synthetic buffer with the base
 	 * key type name prepended to the remaining cert data. */
-	key_fields_start = buf->pos;
-
 	{
 		unsigned int remaining = buf->len - buf->pos;
 		unsigned int synth_size = 4 + base_keynamelen + remaining;
@@ -225,6 +222,7 @@ out:
 }
 
 /* Verify the CA's signature on the certificate. */
+#if DROPBEAR_SIGNKEY_VERIFY
 int cert_verify_ca_signature(const sign_key *key) {
 	sign_key *ca_key = NULL;
 	enum signkey_type ca_keytype = DROPBEAR_SIGNKEY_ANY;
@@ -285,6 +283,7 @@ out:
 	}
 	return ret;
 }
+#endif /* DROPBEAR_SIGNKEY_VERIFY */
 
 /* Check that username matches one of the certificate's valid principals. */
 int cert_check_principal(const struct dropbear_cert_info *info,
@@ -367,6 +366,7 @@ int cert_check_time(const struct dropbear_cert_info *info) {
 
 /* Helper: check if a name matches in a sorted tuple buffer.
  * Tuples are: string name, string data */
+#if DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT
 static int cert_option_present(buffer *opts, const char *name) {
 	unsigned int namelen = strlen(name);
 	buf_setpos(opts, 0);
@@ -411,6 +411,7 @@ static char *cert_option_get_str(buffer *opts, const char *name) {
 	}
 	return NULL;
 }
+#endif /* DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT */
 
 /* Validate certificate critical options — reject if any are unrecognized. */
 int cert_check_critical_options(const struct dropbear_cert_info *info) {
