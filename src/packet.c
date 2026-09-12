@@ -278,12 +278,12 @@ static int read_packet_init() {
 
 	TRACE2(("packet size is %u, block %u mac %u", len, blocksize, macsize))
 
-
-	/* check packet length */
+	/* check packet length. plen max to catch integer wraparound. */
 	if ((len > RECV_MAX_PACKET_LEN) ||
+	    (plen > RECV_MAX_PACKET_LEN) ||
 		(plen < blocksize) ||
 		(plen % blocksize != 0)) {
-		dropbear_exit("Integrity error (bad packet size %u)", len);
+		dropbear_exit("Integrity error (bad packet size %u)", plen);
 	}
 
 	if (len > ses.readbuf->size) {
@@ -475,7 +475,7 @@ static int packet_is_okay_kex(unsigned char type) {
 	return 1;
 }
 
-static void enqueue_reply_packet() {
+static void enqueue_reply_packet(void) {
 	struct packetlist * new_item = NULL;
 	new_item = m_malloc(sizeof(struct packetlist));
 	new_item->next = NULL;

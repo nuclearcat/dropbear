@@ -4,7 +4,7 @@
  *******************************************************************/
 
 #ifndef DROPBEAR_VERSION
-#define DROPBEAR_VERSION "2025.89"
+#define DROPBEAR_VERSION "2026.91"
 #endif
 
 /* IDENT_VERSION_PART is the optional part after "SSH-2.0-dropbear". Refer to RFC4253 for requirements. */
@@ -161,9 +161,15 @@
 #define LTM_DESC
 #endif
 
+#ifndef DROPBEAR_ECC_256
 #define DROPBEAR_ECC_256 (DROPBEAR_ECC)
+#endif
+#ifndef DROPBEAR_ECC_384
 #define DROPBEAR_ECC_384 (DROPBEAR_ECC)
+#endif
+#ifndef DROPBEAR_ECC_521
 #define DROPBEAR_ECC_521 (DROPBEAR_ECC)
+#endif
 
 /* Only include necessary ECC curves building libtomcrypt */
 #define LTC_NO_CURVES
@@ -301,7 +307,7 @@
 #define MAX_KEX_PARTS 1000
 #endif
 
-#define MAX_HOSTKEYS 4
+#define MAX_HOSTKEYS 6
 
 /* The maximum size of the bignum portion of the kexhash buffer */
 /* K_S + Q_C + Q_S + K */
@@ -327,10 +333,11 @@
 
 /* TCP and stream local fwds share the same restrictions */
 #define DROPBEAR_SVR_LOCALANYFWD ((DROPBEAR_SVR_LOCALTCPFWD) || (DROPBEAR_SVR_LOCALSTREAMFWD))
+#define DROPBEAR_SVR_REMOTEANYFWD ((DROPBEAR_SVR_REMOTETCPFWD) || (DROPBEAR_SVR_REMOTESTREAMFWD))
 
 #define DROPBEAR_LISTENERS \
    ((DROPBEAR_CLI_REMOTETCPFWD) || (DROPBEAR_CLI_LOCALTCPFWD) || \
-	(DROPBEAR_SVR_REMOTETCPFWD) || (DROPBEAR_SVR_LOCALANYFWD) || \
+	(DROPBEAR_SVR_REMOTEANYFWD) || (DROPBEAR_SVR_LOCALANYFWD) || \
 	(DROPBEAR_SVR_AGENTFWD) || (DROPBEAR_X11FWD))
 
 #define DROPBEAR_CLI_MULTIHOP ((DROPBEAR_CLI_NETCAT) && (DROPBEAR_CLI_PROXYCMD))
@@ -363,6 +370,10 @@
 
 #if (DROPBEAR_PLUGIN && !DROPBEAR_SVR_PUBKEY_AUTH)
 	#error "You must define DROPBEAR_SVR_PUBKEY_AUTH in order to use plugins"
+#endif
+
+#if (DROPBEAR_PLUGIN && !DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT)
+	#error "DROPBEAR_PLUGIN requires DROPBEAR_SVR_PUBKEY_OPTIONS"
 #endif
 
 #if !(DROPBEAR_AES128 || DROPBEAR_3DES || DROPBEAR_AES256 || DROPBEAR_CHACHA20POLY1305)
@@ -466,8 +477,9 @@
 #error DROPBEAR_SVR_DROP_PRIVS needs DROPBEAR_SVR_MULTIUSER
 #endif
 
-#if !(DROPBEAR_SVR_DROP_PRIVS || !DROPBEAR_SVR_MULTIUSER) && DROPBEAR_SVR_LOCALSTREAMFWD 
-#error DROPBEAR_SVR_LOCALSTREAMFWD requires DROPBEAR_SVR_DROP_PRIVS or !DROPBEAR_SVR_MULTIUSER
+#if !(DROPBEAR_SVR_DROP_PRIVS || !DROPBEAR_SVR_MULTIUSER) \
+   && (DROPBEAR_SVR_LOCALSTREAMFWD || DROPBEAR_SVR_LOCALSTREAMFWD)
+#error stream forwarding requires DROPBEAR_SVR_DROP_PRIVS or !DROPBEAR_SVR_MULTIUSER
 #endif
 
 /* Fuzzing expects all key types to be enabled */

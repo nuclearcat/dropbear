@@ -74,14 +74,16 @@
 
 static char * authorized_keys_filepath(void);
 static int checkpubkey(const char* keyalgo, unsigned int keyalgolen,
-		const unsigned char* keyblob, unsigned int keybloblen);
+		const unsigned char* keyblob, unsigned int keybloblen,
+		struct PubKeyOptions **ret_options);
 static int checkpubkeyperms(void);
 static void send_msg_userauth_pk_ok(const char* sigalgo, unsigned int sigalgolen,
 		const unsigned char* keyblob, unsigned int keybloblen);
 static int checkfileperm(char * filename);
 #if DROPBEAR_CERT_KEYS
 static int checkpubkey_cert(const char* keyalgo, unsigned int keyalgolen,
-		const unsigned char* keyblob, unsigned int keybloblen);
+		const unsigned char* keyblob, unsigned int keybloblen,
+		struct PubKeyOptions **ret_options);
 #endif
 
 /* process a pubkey auth request, sending success or failure message as
@@ -101,7 +103,8 @@ void svr_auth_pubkey(int valid_user) {
 	char* fp = NULL;
 	enum signature_type sigtype;
 	enum signkey_type keytype;
-    int auth_failure = 1;
+	int auth_failure = 1;
+	struct PubKeyOptions *pubkey_options = NULL;
 
 	TRACE(("enter pubkeyauth"))
 
@@ -154,8 +157,8 @@ void svr_auth_pubkey(int valid_user) {
                     .pos = 0,
                     .size = 0
                 };
-                int ret = svr_add_pubkey_options(&temp_buf, 0, "N/A");
-                if (ret == DROPBEAR_FAILURE) {
+                pubkey_options = svr_parse_pubkey_options(&temp_buf, 0, "plugin");
+                if (pubkey_options == NULL) {
                     /* Fail immediately as the plugin provided wrong options */
                     send_msg_userauth_failure(0, 0);
                     goto out;
@@ -166,7 +169,8 @@ void svr_auth_pubkey(int valid_user) {
 #endif
 	/* check if the key is valid */
 	if (auth_failure) {
-	    auth_failure = checkpubkey(keyalgo, keyalgolen, keyblob, keybloblen) == DROPBEAR_FAILURE;
+		int status = checkpubkey(keyalgo, keyalgolen, keyblob, keybloblen, &pubkey_options);
+		auth_failure = (status != DROPBEAR_SUCCESS);
 	}
 
 	if (auth_failure) {
@@ -175,9 +179,9 @@ void svr_auth_pubkey(int valid_user) {
 		 * Start counting failures (incrfail) only when it's reaching
 		 * the limit.
 		 */
-		unsigned int free_query_limit = 0;
-			MAX(0, (int)svr_opts.maxauthtries - MAX_PUBKEY_QUERIES);
-		int incrfail = ses.authstate.serv_pubkey_query_count > free_query_limit;
+		unsigned int free_query_limit =
+			MAX(0, MAX_PUBKEY_QUERIES - (int)svr_opts.maxauthtries);
+		int incrfail = ses.authstate.serv_pubkey_query_count >= free_query_limit;
 		send_msg_userauth_failure(0, incrfail);
 		ses.authstate.serv_pubkey_query_count++;
 		goto out;
@@ -201,13 +205,13 @@ void svr_auth_pubkey(int valid_user) {
 #if DROPBEAR_SK_ECDSA || DROPBEAR_SK_ED25519
 	key->sk_flags_mask = SSH_SK_USER_PRESENCE_REQD;
 #if DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT
-	if (ses.authstate.pubkey_options && ses.authstate.pubkey_options->no_touch_required_flag) {
+	if (pubkey_options->no_touch_required_flag) {
 		key->sk_flags_mask &= ~SSH_SK_USER_PRESENCE_REQD;
 	}
-	if (ses.authstate.pubkey_options && ses.authstate.pubkey_options->verify_required_flag) {
+	if (pubkey_options->verify_required_flag) {
 		key->sk_flags_mask |= SSH_SK_USER_VERIFICATION_REQD;
 	}
-#endif /* DROPBEAR_SVR_PUBKEY_OPTIONS */
+#endif /* DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT */
 #endif
 
 	/* create the data which has been signed - this a string containing
@@ -229,6 +233,10 @@ void svr_auth_pubkey(int valid_user) {
 	/* ... and finally verify the signature */
 	fp = sign_key_fingerprint(keyblob, keybloblen);
 	if (buf_verify(ses.payload, key, sigtype, signbuf) == DROPBEAR_SUCCESS) {
+		if (ses.authstate.pubkey_options == NULL) {
+			ses.authstate.pubkey_options = pubkey_options;
+			pubkey_options = NULL;
+		}
 		if (svr_opts.multiauthmethod && (ses.authstate.authtypes & ~AUTH_TYPE_PUBKEY)) {
 			/* successful pubkey authentication, but extra auth required */
 			dropbear_log(LOG_NOTICE,
@@ -273,9 +281,9 @@ out:
 		sign_key_free(key);
 		key = NULL;
 	}
-	/* Retain pubkey options only if auth succeeded */
-	if (!ses.authstate.authdone) {
-		svr_pubkey_options_cleanup();
+	if (pubkey_options) {
+		svr_pubkey_options_cleanup(pubkey_options);
+		pubkey_options = NULL;
 	}
 	TRACE(("leave pubkeyauth"))
 }
@@ -298,16 +306,21 @@ static void send_msg_userauth_pk_ok(const char* sigalgo, unsigned int sigalgolen
 
 }
 
-/* Content for SSH_PUBKEYINFO is optionally returned malloced in ret_info (will be
-   freed if already set */
+/* Key options are optionally returned in ret_options.
+   Should be passed with *ret_options = NULL, will only be populated
+   on success return. */
 static int checkpubkey_line(buffer* line, int line_num, const char* filename,
 		const char* algo, unsigned int algolen,
 		const unsigned char* keyblob, unsigned int keybloblen,
-		char ** ret_info) {
+		struct PubKeyOptions ** ret_options) {
 	buffer *options_buf = NULL;
 	char *info_str = NULL;
 	unsigned int pos, len, infopos, infolen;
 	int ret = DROPBEAR_FAILURE;
+
+	if (ret_options) {
+		*ret_options = NULL;
+	}
 
 	if (line->len < MIN_AUTHKEYS_LINE || line->len > MAX_AUTHKEYS_LINE) {
 		TRACE(("checkpubkey_line: bad line length %d", line->len))
@@ -410,7 +423,7 @@ static int checkpubkey_line(buffer* line, int line_num, const char* filename,
 	if (infolen > 0) {
 		info_str = m_malloc(infolen + 1);
 		buf_setpos(line, infopos);
-	strncpy(info_str, buf_getptr(line, infolen), infolen);
+		strncpy(info_str, buf_getptr(line, infolen), infolen);
 	}
 
 	/* truncate to base64 data length */
@@ -422,20 +435,19 @@ static int checkpubkey_line(buffer* line, int line_num, const char* filename,
 	ret = cmp_base64_key(keyblob, keybloblen, (const unsigned char *) algo, algolen, line, NULL);
 
 	/* free pubkey_info if it is filled */
-	if (ret_info && *ret_info) {
-		m_free(*ret_info);
-		*ret_info = NULL;
-	}
-
 	if (ret == DROPBEAR_SUCCESS) {
-		if (options_buf) {
-			ret = svr_add_pubkey_options(options_buf, line_num, filename);
-		}
-		if (ret_info) {
+#if DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT
+		if (ret_options) {
+			*ret_options = svr_parse_pubkey_options(options_buf, line_num, filename);
+			if (*ret_options == NULL) {
+				ret = DROPBEAR_FAILURE;
+				goto out;
+			}
 			/* take the (optional) public key information */
-			*ret_info = info_str;
+			(*ret_options)->info_env = info_str;
 			info_str = NULL;
 		}
+#endif
 	}
 
 out:
@@ -471,7 +483,8 @@ static char *authorized_keys_filepath() {
  * acceptable key for authentication */
 /* Returns DROPBEAR_SUCCESS if key is ok for auth, DROPBEAR_FAILURE otherwise */
 static int checkpubkey(const char* keyalgo, unsigned int keyalgolen,
-		const unsigned char* keyblob, unsigned int keybloblen) {
+		const unsigned char* keyblob, unsigned int keybloblen,
+		struct PubKeyOptions **ret_options) {
 
 	FILE * authfile = NULL;
 	char * filename = NULL;
@@ -487,7 +500,8 @@ static int checkpubkey(const char* keyalgo, unsigned int keyalgolen,
 	{
 		enum signkey_type keytype = signkey_type_from_name(keyalgo, keyalgolen);
 		if (signkey_is_cert_type(keytype)) {
-			return checkpubkey_cert(keyalgo, keyalgolen, keyblob, keybloblen);
+			return checkpubkey_cert(keyalgo, keyalgolen, keyblob, keybloblen,
+					ret_options);
 		}
 	}
 #endif
@@ -505,10 +519,18 @@ static int checkpubkey(const char* keyalgo, unsigned int keyalgolen,
 	if (checkpubkeyperms() == DROPBEAR_FAILURE) {
 		TRACE(("bad authorized_keys permissions, or file doesn't exist"))
 	} else {
+		int fd;
 		/* we don't need to check pw and pw_dir for validity, since
 		 * its been done in checkpubkeyperms. */
 		filename = authorized_keys_filepath();
-		authfile = fopen(filename, "r");
+		fd = open(filename, O_RDONLY | O_NONBLOCK);
+		if (fd >= 0) {
+			authfile = fdopen(fd, "r");
+			if (!authfile) {
+				/* fdopen could fail with ENOMEM */
+				m_close(fd);
+			}
+		}
 		if (!authfile) {
 			TRACE(("checkpubkey: failed opening %s: %s", filename, strerror(errno)))
 		}
@@ -538,13 +560,7 @@ static int checkpubkey(const char* keyalgo, unsigned int keyalgolen,
 		line_num++;
 
 		ret = checkpubkey_line(line, line_num, filename, keyalgo, keyalgolen,
-			keyblob, keybloblen,
-#if DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT
-			&ses.authstate.pubkey_info
-#else
-			NULL
-#endif
-		);
+			keyblob, keybloblen, ret_options);
 		if (ret == DROPBEAR_SUCCESS) {
 			break;
 		}
@@ -569,7 +585,8 @@ out:
  * Parses the cert, finds matching CA key, verifies CA signature,
  * checks principals, time validity, and processes cert options. */
 static int checkpubkey_cert(const char* keyalgo, unsigned int keyalgolen,
-		const unsigned char* keyblob, unsigned int keybloblen) {
+		const unsigned char* keyblob, unsigned int keybloblen,
+		struct PubKeyOptions **ret_options) {
 
 	FILE * authfile = NULL;
 	char * filename = NULL;
@@ -577,11 +594,13 @@ static int checkpubkey_cert(const char* keyalgo, unsigned int keyalgolen,
 	buffer * line = NULL;
 	buffer * certbuf = NULL;
 	sign_key * cert_key = NULL;
+	struct PubKeyOptions *pubkey_options = NULL;
 	int line_num;
 	uid_t origuid;
 	gid_t origgid;
 
 	TRACE(("enter checkpubkey_cert"))
+	*ret_options = NULL;
 
 #if !DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT
 	/* Both certificate permissions and CA-line restrictions require options
@@ -631,8 +650,15 @@ static int checkpubkey_cert(const char* keyalgo, unsigned int keyalgolen,
 	if (checkpubkeyperms() == DROPBEAR_FAILURE) {
 		TRACE(("bad authorized_keys permissions, or file doesn't exist"))
 	} else {
+		int fd;
 		filename = authorized_keys_filepath();
-		authfile = fopen(filename, "r");
+		fd = open(filename, O_RDONLY | O_NONBLOCK);
+		if (fd >= 0) {
+			authfile = fdopen(fd, "r");
+			if (!authfile) {
+				m_close(fd);
+			}
+		}
 		if (!authfile) {
 			TRACE(("checkpubkey_cert: failed opening %s: %s", filename, strerror(errno)))
 		}
@@ -879,12 +905,14 @@ static int checkpubkey_cert(const char* keyalgo, unsigned int keyalgolen,
 			}
 
 			/* 4. Process authorized_keys line options */
+#if DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT
+			pubkey_options = svr_parse_pubkey_options(options_buf, line_num, filename);
+			if (pubkey_options == NULL) {
+				if (options_buf) buf_free(options_buf);
+				goto out;
+			}
+#endif
 			if (options_buf) {
-				if (svr_add_pubkey_options(options_buf, line_num, filename)
-						!= DROPBEAR_SUCCESS) {
-					buf_free(options_buf);
-					goto out;
-				}
 				buf_free(options_buf);
 				options_buf = NULL;
 			}
@@ -898,7 +926,7 @@ static int checkpubkey_cert(const char* keyalgo, unsigned int keyalgolen,
 			}
 #if DROPBEAR_SVR_PUBKEY_OPTIONS_BUILT
 			if (cert_apply_options(cert_key->cert_info,
-					&ses.authstate.pubkey_options) != DROPBEAR_SUCCESS) {
+					&pubkey_options) != DROPBEAR_SUCCESS) {
 				dropbear_log(LOG_WARNING,
 					"Certificate options processing failed");
 				goto out;
@@ -906,6 +934,8 @@ static int checkpubkey_cert(const char* keyalgo, unsigned int keyalgolen,
 #endif
 
 			/* All checks passed */
+			*ret_options = pubkey_options;
+			pubkey_options = NULL;
 			ret = DROPBEAR_SUCCESS;
 			break;
 		}
@@ -926,6 +956,7 @@ out:
 	}
 	m_free(filename);
 	TRACE(("leave checkpubkey_cert: ret=%d", ret))
+	svr_pubkey_options_cleanup(pubkey_options);
 	return ret;
 }
 #endif /* DROPBEAR_CERT_KEYS */
@@ -1003,10 +1034,12 @@ static int checkfileperm(char * filename) {
 }
 
 #if DROPBEAR_FUZZ
-int fuzz_checkpubkey_line(buffer* line, int line_num, char* filename,
+void fuzz_checkpubkey_line(buffer* line, int line_num, char* filename,
 		const char* algo, unsigned int algolen,
 		const unsigned char* keyblob, unsigned int keybloblen) {
-	return checkpubkey_line(line, line_num, filename, algo, algolen, keyblob, keybloblen, NULL);
+	struct PubKeyOptions *options = NULL;
+	checkpubkey_line(line, line_num, filename, algo, algolen, keyblob, keybloblen, &options);
+	svr_pubkey_options_cleanup(options);
 }
 #endif
 

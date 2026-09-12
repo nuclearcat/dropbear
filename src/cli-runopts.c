@@ -28,7 +28,7 @@
 #include "buffer.h"
 #include "dbutil.h"
 #include "algo.h"
-#include "tcpfwd.h"
+#include "forward.h"
 #include "list.h"
 #include "keyimport.h"
 
@@ -85,6 +85,7 @@ static void printhelp() {
 					"-W <receive_window_buffer> (default %d, larger may be faster, max 10MB)\n"
 					"-K <keepalive>  (0 is never, default %d)\n"
 					"-I <idle_timeout>  (0 is never, default %d)\n"
+					"-M <max_duration>  (0 is off, default %d, in seconds)\n"
 					"-z    disable QoS\n"
 #if DROPBEAR_CLI_NETCAT
 					"-B <endhost:endport> Netcat-alike forwarding\n"
@@ -97,6 +98,7 @@ static void printhelp() {
 					"-m <MAC list> Specify preferred MACs for packet verification (or '-m help')\n"
 #endif
 					"-b    [bind_address][:bind_port]\n"
+					"-Q    <algo>   Print supported algorithms, or -Q help\n"
 					"-V    Version\n"
 #if DEBUG_TRACE
 					"-v    verbose (repeat for more verbose)\n"
@@ -105,7 +107,8 @@ static void printhelp() {
 #if DROPBEAR_CLI_PUBKEY_AUTH
 					DROPBEAR_DEFAULT_CLI_AUTHKEY,
 #endif
-					DEFAULT_RECV_WINDOW, DEFAULT_KEEPALIVE, DEFAULT_IDLE_TIMEOUT);
+					DEFAULT_RECV_WINDOW, DEFAULT_KEEPALIVE, DEFAULT_IDLE_TIMEOUT,
+					DEFAULT_MAX_DURATION);
 
 }
 
@@ -133,10 +136,12 @@ void cli_getopts(int argc, char ** argv) {
 
 	const char* recv_window_arg = NULL;
 	const char* idle_timeout_arg = NULL;
+	const char* max_duration_arg = NULL;
 	const char *host_arg = NULL;
 	const char *proxycmd_arg = NULL;
 	const char *remoteport_arg = NULL;
 	const char *username_arg = NULL;
+	const char *algo_print_arg = NULL;
 	char c;
 
 	/* see printhelp() for options */
@@ -183,7 +188,7 @@ void cli_getopts(int argc, char ** argv) {
 	cli_opts.bind_port = NULL;
 	cli_opts.keepalive_arg = NULL;
 #ifndef DISABLE_ZLIB
-	opts.allow_compress = 1;
+	opts.compression = DROPBEAR_CLI_COMPRESSION;
 #endif
 #if DROPBEAR_USER_ALGO_LIST
 	opts.cipher_list = NULL;
@@ -199,6 +204,7 @@ void cli_getopts(int argc, char ** argv) {
 	opts.recv_window = DEFAULT_RECV_WINDOW;
 	opts.keepalive_secs = DEFAULT_KEEPALIVE;
 	opts.idle_timeout_secs = DEFAULT_IDLE_TIMEOUT;
+	opts.max_duration_secs = DEFAULT_MAX_DURATION;
 
 	fill_own_user();
 
@@ -284,6 +290,9 @@ void cli_getopts(int argc, char ** argv) {
 				case 'l':
 					next = &username_arg;
 					break;
+				case 'Q':
+					next = &algo_print_arg;
+					break;
 				case 'h':
 					printhelp();
 					exit(EXIT_SUCCESS);
@@ -299,6 +308,9 @@ void cli_getopts(int argc, char ** argv) {
 					break;
 				case 'I':
 					next = &idle_timeout_arg;
+					break;
+				case 'M':
+					next = &max_duration_arg;
 					break;
 #if DROPBEAR_CLI_AGENTFWD
 				case 'A':
@@ -405,9 +417,14 @@ void cli_getopts(int argc, char ** argv) {
 	parse_ciphers_macs();
 #endif
 
+	if (algo_print_arg) {
+		print_algos(algo_print_arg);
+		/* No return */
+	}
+
 	if (host_arg == NULL) { /* missing hostname */
 		printhelp();
-		dropbear_exit("Remote host needs to provided.");
+		dropbear_exit("Remote host needs to be provided.");
 	}
 	TRACE(("host is: %s", host_arg))
 
@@ -508,6 +525,14 @@ void cli_getopts(int argc, char ** argv) {
 		opts.idle_timeout_secs = val;
 	}
 
+	if (max_duration_arg) {
+		unsigned int val;
+		if (m_str_to_uint(max_duration_arg, &val) == DROPBEAR_FAILURE) {
+			dropbear_exit("Bad max_duration '%s'", max_duration_arg);
+		}
+		opts.max_duration_secs = val;
+	}
+
 #if DROPBEAR_CLI_NETCAT
 	if (cli_opts.cmd && cli_opts.netcat_host) {
 		dropbear_log(LOG_INFO, "Ignoring command '%s' in netcat mode", cli_opts.cmd);
@@ -530,7 +555,6 @@ void cli_getopts(int argc, char ** argv) {
 		loadidentityfile(DROPBEAR_DEFAULT_CLI_AUTHKEY, 0);
 	}
 #endif
-
 }
 
 #if DROPBEAR_CLI_PUBKEY_AUTH
@@ -590,7 +614,7 @@ void loadidentityfile(const char* filename, int warnfail) {
 static char** multihop_args(const char* argv0, const char* prior_hops) {
 	/* null terminated array */
 	char **args = NULL;
-	size_t max_args = 14, pos = 0, len;
+	size_t max_args = 16, pos = 0, len;
 #if DROPBEAR_CLI_PUBKEY_AUTH
 	m_list_elem *iter;
 #endif
@@ -630,6 +654,15 @@ static char** multihop_args(const char* argv0, const char* prior_hops) {
 		args[pos] = m_strdup("BatchMode=yes");
 		pos++;
 	}
+
+#ifndef DISABLE_ZLIB
+	if (opts.compression) {
+		args[pos] = m_strdup("-o");
+		pos++;
+		args[pos] = m_strdup("Compression=yes");
+		pos++;
+	}
+#endif
 
 	if (cli_opts.proxycmd) {
 		args[pos] = m_strdup("-J");
@@ -736,7 +769,7 @@ static void parse_multihop_hostname(const char* orighostarg, const char* argv0) 
 
 #ifndef DISABLE_ZLIB
 		/* This outer stream will be incompressible since it's encrypted. */
-		opts.allow_compress = 0;
+		opts.compression = 0;
 #endif
 	}
 
@@ -964,9 +997,14 @@ static int match_extendedopt(const char** strptr, const char *optname) {
 }
 
 static int parse_flag_value(const char *value) {
-	if (strcmp(value, "yes") == 0 || strcmp(value, "true") == 0) {
+	if (strcmp(value, "yes") == 0
+		|| strcmp(value, "y") == 0
+		|| strcmp(value, "true") == 0
+		) {
 		return 1;
-	} else if (strcmp(value, "no") == 0 || strcmp(value, "false") == 0) {
+	} else if (strcmp(value, "no") == 0
+		|| strcmp(value, "n") == 0
+		|| strcmp(value, "false") == 0) {
 		return 0;
 	}
 
@@ -980,6 +1018,9 @@ static void add_extendedopt(const char* origstr) {
 		dropbear_log(LOG_INFO, "Available options:\n"
 			"\tBatchMode\n"
 			"\tBindAddress\n"
+#ifndef DISABLE_ZLIB
+			"\tCompression\n"
+#endif
 			"\tDisableTrivialAuth\n"
 #if DROPBEAR_CLI_ANYTCPFWD
 			"\tExitOnForwardFailure\n"
@@ -1017,6 +1058,19 @@ static void add_extendedopt(const char* origstr) {
 		return;
 	}
 
+	if (match_extendedopt(&optstr, "Compression") == DROPBEAR_SUCCESS) {
+		int flag = parse_flag_value(optstr);
+#ifndef DISABLE_ZLIB
+		/* Compression compiled in */
+		opts.compression = flag;
+#else
+		if (flag) {
+			dropbear_log(LOG_WARNING, "compression is not supported");
+		}
+#endif
+		return;
+	}
+
 	if (match_extendedopt(&optstr, "DisableTrivialAuth") == DROPBEAR_SUCCESS) {
 		cli_opts.disable_trivial_auth = parse_flag_value(optstr);
 		return;
@@ -1038,7 +1092,7 @@ static void add_extendedopt(const char* origstr) {
 
 #if DROPBEAR_CLI_LOCALTCPFWD
 	if (match_extendedopt(&optstr, "GatewayPorts") == DROPBEAR_SUCCESS) {
-		opts.listen_fwd_all = 1;
+		opts.listen_fwd_all = parse_flag_value(optstr);
 		return;
 	}
 #endif

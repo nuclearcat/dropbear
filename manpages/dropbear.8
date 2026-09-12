@@ -105,6 +105,11 @@ of 0 disables keepalives. If no response is received for 3 consecutive keepalive
 .B \-I \fIidle_timeout
 Disconnect the session if no traffic is transmitted or received for \fIidle_timeout\fR seconds.
 .TP
+.B \-M
+Set maximum session duration in seconds. All sessions will close after this time.
+If a compile-time setting was set (default is none), then setting \fI-M 0\fR will disable
+the session duration timeout.
+.TP
 .B \-z
 By default Dropbear will send network traffic with the \fBAF21\fR setting for QoS, letting network devices give it higher priority. Some devices may have problems with that, \fI-z\fR can be used to disable it.
 .TP
@@ -128,6 +133,11 @@ options when using forced command.
 .B \-D \fIauthorized_keys_dir
 Specify the directory to use for authorized_keys files. The default is ~/.ssh , paths with
 a leading ~/ will be home directory expanded.
+
+.TP
+.B \-Q \fIalgo
+Query supported algorithms. Options are kex, sig, cipher, mac, compress
+
 .TP
 .B \-V
 Print the version
@@ -182,6 +192,14 @@ specified host and port. Multiple permitopen options separated by commas
 can be set in authorized_keys. Wildcard character ('*') may be used in
 port specification for matching any port. Hosts must be literal domain names or
 IP addresses.
+
+.TP
+.B permitlisten=\fR"\fIport\fR"
+Restrict remote port forwarding listeners to the given port.
+Multiple permitlisten="port" options separated by commas
+can be set in authorized_keys.
+Port can be 0 to allow the
+listen port to be dynamically allocated on the server.
 
 .TP
 .B command=\fR"\fIforced_command\fR"

@@ -102,6 +102,14 @@ def main():
                     result = ssh(command="echo SHOULD_NOT_RUN")
                     require(result, True, "forced command authentication")
                     assert result.stdout.strip() == "FORCED_OK", result.stdout
+                    authfile.write_text('command="echo DIFFERENT",' + ca_line)
+                    require(ssh(), False, "conflicting CA and certificate commands rejected")
+                    sign()
+                    authfile.write_text('command="echo CA_FORCED_OK",' + ca_line)
+                    result = ssh(command="echo SHOULD_NOT_RUN")
+                    require(result, True, "CA-line forced command authentication")
+                    assert result.stdout.strip() == "CA_FORCED_OK", result.stdout
+                    authfile.write_text(ca_line)
                     sign("-O", "critical:unsupported-regression-option")
                     require(ssh(), False, "unknown critical option rejected")
 
